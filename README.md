@@ -1,4 +1,12 @@
 # LD2410
+
+> 📚 **Full documentation lives in [`docs/`](docs/)** — start with
+> [`docs/README.md`](docs/README.md) for the index, or jump straight to
+> [getting started](docs/01-getting-started.md),
+> the [variant comparison](docs/02-variants.md), the
+> [API reference](docs/04-api-core.md), or
+> [troubleshooting](docs/09-troubleshooting.md).
+
 ## Introduction
 
 An Arduino library for the Hi-Link LD2410 24Ghz FMCW radar sensor. This sensor is a Frequency Modulated Continuous Wave radar, which makes it good for presence detection and its sensitivity at different ranges to both static and moving targets can be configured.
@@ -10,14 +18,6 @@ The code in this library is based heavily off this [piece of work for ESPHome](h
 The LD2410, as sold for configuration with the common breakout boards shown above communicates over serial at 256000 baud by default. This library allows you to configure and use the sensor over this serial connection. As the LD2410 is a device that uses a high baud rate, a microcontroller with a spare hardware UART for this communication is preferable to bit-banged software serial.
 
 The modules also provide an 'active high' output on the 'OUT' pin which can be used to signal presence, based off the settings configured. Once the modules are configured it is not necessary to use their UART, but it provides much more information.
-
-## Updates in this fork (`adapt-to-it/ld2410`)
-
-This is a maintained fork of [`ncmreynolds/ld2410`](https://github.com/ncmreynolds/ld2410). The following pull requests have been merged into `main`:
-
-- [**#1 — Cross-platform task fixes + protocol-aligned engineering frame parser**](https://github.com/adapt-to-it/ld2410/pull/1) — removes ESP32-only constructs from the polling path so AVR/ESP8266 builds compile cleanly again, fixes engineering-frame byte offsets per the [HLK-LD2410C protocol spec](docs/HLK-LD2410C_protocol.md), protects shared sensor state with `portMUX_TYPE` on ESP32, and introduces the optional `autoReadTask()` background-reader API on ESP32.
-- [**#2 — Native host-side parser unit tests**](https://github.com/adapt-to-it/ld2410/pull/2) — `g++` build of the parser against fixture frames from the protocol doc, runnable with `bash tests/run.sh`.
-- [**#3 — Task-safe `request*`/`set*` commands**](https://github.com/adapt-to-it/ld2410/pull/3) — the command path now coordinates with `autoReadTask` via a sequence-number ACK helper (`wait_for_ack_`), so blocking commands can be issued concurrently with the background reader without UART races. Adds the `isAutoReadTaskRunning()` getter.
 
 ## Connections
 
