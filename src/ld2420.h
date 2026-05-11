@@ -97,6 +97,41 @@ class ld2420 {
 		uint16_t protocol_version    = 0;   // populated by enterCommandMode()
 		uint16_t tx_rx_buffer_size   = 0;   // populated by enterCommandMode()
 
+		// ---- Register r/w (HLK-2420 §1.2.2 / §1.2.3) ----------------------
+		// Direct read / write of the radar's chip registers. The protocol
+		// supports bulk operations (N registers per command), but this API
+		// exposes only the single-register path — bulk can be added later
+		// once a real use case lands.
+		//
+		// 0x0001 send payload: `chip_addr (2B) + reg_addr (2B) + value (2B)`.
+		// 0x0002 send payload: `chip_addr (2B) + reg_addr (2B)`; ACK result
+		// data is the 2-byte register value (LE).
+		//
+		// Wraps its own enter/exitCommandMode pair, so the caller does not
+		// need to be in command mode beforehand.
+		bool writeRegister(uint16_t chip, uint16_t reg, uint16_t value);
+		bool readRegister (uint16_t chip, uint16_t reg, uint16_t & out);
+
+		// ---- System parameters (HLK-2420 §1.2.7 / §1.2.8) -----------------
+		// Generic read / write of the system parameter words enumerated in
+		// LD2420_SYS_W_*. Each parameter is a 4-byte LE value.
+		//
+		// 0x0012 send payload: `(word (2B) + value (4B)) × N`.
+		// 0x0013 send payload: `(word (2B)) × N`; ACK result data is the
+		// 4-byte value per requested word (LE).
+		//
+		// Single-word path only — the bulk path waits for a real use case.
+		// Both methods wrap their own enter/exitCommandMode pair.
+		bool writeSystemParameter(uint16_t word, uint32_t value);
+		bool readSystemParameter (uint16_t word, uint32_t & out);
+
+		// Convenience wrappers around the most useful system-parameter word
+		// (LD2420_SYS_W_MODE). Mode values: LD2420_SYS_MODE_TRANSPARENT (0),
+		// LD2420_SYS_MODE_MTT (1), LD2420_SYS_MODE_VS (2), LD2420_SYS_MODE_GR
+		// (3), or LD2420_SYS_MODE_CUSTOM_BASE+ (≥10).
+		bool setSystemMode(uint8_t mode);
+		bool getSystemMode(uint8_t & out);
+
 		// ---- Firmware version (HLK-2420 §1.2.1) ---------------------------
 		// 0x0000 — read version. The ACK payload is a 2-byte LE length field
 		// followed by an ASCII version string (e.g. "v1.4.14" — 7 bytes).
@@ -155,6 +190,14 @@ class ld2420 {
 
 		uint8_t radar_data_frame_[LD2420_MAX_FRAME_LENGTH];
 		uint16_t radar_data_frame_position_ = 0;
+
+		// Scratch state used by single-shot read paths. The parser stashes
+		// the most recent ACK payload here; the public read methods consume
+		// it under the same cmd_seq_/cmd_ack_seq_ release-acquire pattern
+		// as the rest of the command state, so reads on ESP32 dual-core do
+		// not see torn values.
+		uint16_t last_register_value_     = 0;   // 0x0102 ACK payload
+		uint32_t last_system_param_value_ = 0;   // 0x0113 ACK payload
 
 		uint8_t  circular_buffer[LD2420_BUFFER_SIZE];
 		uint16_t buffer_head = 0;

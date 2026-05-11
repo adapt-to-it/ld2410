@@ -248,6 +248,75 @@ bool ld2420::parse_command_frame_() {
 		(uint16_t)radar_data_frame_[8] |
 		((uint16_t)radar_data_frame_[9] << 8);
 
+	radar_uart_last_packet_ = millis();
+
+	// Decode payload BEFORE publishing the ACK match. On ESP32 dual-core with
+	// autoReadTask running, wait_for_ack_ uses cmd_ack_seq_ as a "all state
+	// for this ACK is written" signal — flipping it before the member-field
+	// writes finish would let the caller read torn state. portENTER_CRITICAL
+	// below acts as a release barrier; the matching ENTER on the reader side
+	// is the acquire.
+	const uint16_t send_opcode = ack_opcode & 0x00FF;
+	const uint16_t intra_len =
+		(uint16_t)radar_data_frame_[4] | ((uint16_t)radar_data_frame_[5] << 8);
+	// intra_len covers cmd-word (2) + return-value (2) + result data; the
+	// useful result_len is intra_len - 4.
+	const uint16_t result_len = intra_len >= 4 ? intra_len - 4 : 0;
+	const uint8_t * payload = &radar_data_frame_[10];
+
+	if (status == 0) {
+		switch (send_opcode) {
+			case LD2420_OP_READ_VERSION:
+				if (result_len >= 2) {
+					const uint16_t verstr_len =
+						(uint16_t)payload[0] | ((uint16_t)payload[1] << 8);
+					if (verstr_len + 2 <= result_len) {
+						store_firmware_version_(payload + 2, verstr_len);
+					}
+				}
+				break;
+
+			case LD2420_OP_ENABLE_CFG:
+				if (result_len >= 4) {
+					protocol_version  = (uint16_t)payload[0] | ((uint16_t)payload[1] << 8);
+					tx_rx_buffer_size = (uint16_t)payload[2] | ((uint16_t)payload[3] << 8);
+				}
+				break;
+
+			case LD2420_OP_READ_REGISTER:
+				// Single-register read: 2 bytes of register data (LE). The
+				// bulk path (multiple registers in one request) is not yet
+				// exposed; when added, the request will need to remember how
+				// many registers were asked so this branch can populate an
+				// array. For now we stash only the first register.
+				if (result_len >= 2) {
+					last_register_value_ =
+						(uint16_t)payload[0] | ((uint16_t)payload[1] << 8);
+				}
+				break;
+
+			case LD2420_OP_READ_SYS_PARAMS:
+				// Single-parameter read: 4 bytes of parameter value (LE).
+				if (result_len >= 4) {
+					last_system_param_value_ =
+						(uint32_t)payload[0]
+						| ((uint32_t)payload[1] << 8)
+						| ((uint32_t)payload[2] << 16)
+						| ((uint32_t)payload[3] << 24);
+				}
+				break;
+
+			case LD2420_OP_WRITE_REGISTER:
+			case LD2420_OP_CONFIG_SYS_PARAMS:
+			case LD2420_OP_END_CFG:
+			default:
+				// Either no payload to decode, or this revision does not yet
+				// expose a parser for the opcode. Caller still sees ACK +
+				// status via cmd_seq_/cmd_ack_seq_.
+				break;
+		}
+	}
+
 #if defined(ESP32)
 	portENTER_CRITICAL(&data_mux_);
 #endif
@@ -260,60 +329,16 @@ bool ld2420::parse_command_frame_() {
 	portEXIT_CRITICAL(&data_mux_);
 #endif
 
-	radar_uart_last_packet_ = millis();
-
-	if (status != 0) {
-#if defined(LD2420_DEBUG_COMMANDS)
-		if (debug_uart_ != nullptr) {
-			debug_uart_->print(F("ld2420 ACK opcode 0x"));
-			debug_uart_->print(ack_opcode, HEX);
-			debug_uart_->print(F(" status=0x"));
-			debug_uart_->println(status, HEX);
-		}
-#endif
-		return true;
-	}
-
-	// Decode payload by send-opcode (= ack & 0x00FF, low byte).
-	const uint16_t send_opcode = ack_opcode & 0x00FF;
-	const uint8_t * payload = &radar_data_frame_[10];
-	const uint16_t payload_len = (uint16_t)radar_data_frame_[4]
-	                             | ((uint16_t)radar_data_frame_[5] << 8);
-	// payload_len above is intra_len (cmd-word + return-value + result);
-	// result_len = intra_len - 4.
-	const uint16_t result_len = payload_len >= 4 ? payload_len - 4 : 0;
-
-	switch (send_opcode) {
-		case LD2420_OP_READ_VERSION:
-			if (result_len >= 2) {
-				const uint16_t verstr_len =
-					(uint16_t)payload[0] | ((uint16_t)payload[1] << 8);
-				if (verstr_len + 2 <= result_len) {
-					store_firmware_version_(payload + 2, verstr_len);
-				}
-			}
-			break;
-
-		case LD2420_OP_ENABLE_CFG:
-			if (result_len >= 4) {
-				protocol_version  = (uint16_t)payload[0] | ((uint16_t)payload[1] << 8);
-				tx_rx_buffer_size = (uint16_t)payload[2] | ((uint16_t)payload[3] << 8);
-			}
-			break;
-
-		case LD2420_OP_END_CFG:
-		default:
-			// Either no payload to decode, or this revision does not yet
-			// expose a parser for the opcode. Caller still sees ACK + status
-			// via cmd_seq_/cmd_ack_seq_.
-			break;
-	}
-
 #if defined(LD2420_DEBUG_COMMANDS)
 	if (debug_uart_ != nullptr) {
 		debug_uart_->print(F("ld2420 ACK opcode 0x"));
 		debug_uart_->print(ack_opcode, HEX);
-		debug_uart_->println(F(" ok"));
+		if (status != 0) {
+			debug_uart_->print(F(" status=0x"));
+			debug_uart_->println(status, HEX);
+		} else {
+			debug_uart_->println(F(" ok"));
+		}
 	}
 #endif
 	return true;
@@ -503,6 +528,148 @@ bool ld2420::enterCommandMode() {
 bool ld2420::exitCommandMode() {
 	send_simple_command_(LD2420_OP_END_CFG);
 	return wait_for_ack_(LD2420_OP_END_CFG, radar_uart_command_timeout_);
+}
+
+// ---------------------------------------------------------------------------
+// Register r/w (§1.2.2 / §1.2.3)
+//
+// Note on the V2.2 XLSX wire examples: the "Read register" send-frame
+// examples in §1.3 print the intra-length field two bytes short of the
+// actual intra-frame size (e.g. "04 00" while the body is 6 bytes long).
+// Every OTHER send example (write register, open command mode, etc.) and
+// every receive example uses the consistent convention "len = full intra
+// including cmd-word", and that is what the firmware on the wire accepts.
+// We follow the consistent convention. See docs/HLK-LD2420_protocol.md
+// note under §1.3 for the discrepancy.
+
+bool ld2420::writeRegister(uint16_t chip, uint16_t reg, uint16_t value) {
+	CommandTransaction tx(*this);
+	if (!tx.ok()) return false;
+	if (!enterCommandMode()) {
+		delay(50);
+		exitCommandMode();
+		return false;
+	}
+	delay(50);
+
+	begin_command_(LD2420_OP_WRITE_REGISTER);
+	send_command_preamble_();
+	ld24xx_write_le16(radar_uart_, 0x0008);                    // intra_len = 8
+	ld24xx_write_le16(radar_uart_, LD2420_OP_WRITE_REGISTER);  // cmd-word
+	ld24xx_write_le16(radar_uart_, chip);
+	ld24xx_write_le16(radar_uart_, reg);
+	ld24xx_write_le16(radar_uart_, value);
+	send_command_postamble_();
+	const bool ok = wait_for_ack_(LD2420_OP_WRITE_REGISTER, radar_uart_command_timeout_);
+
+	delay(50);
+	exitCommandMode();
+	return ok;
+}
+
+bool ld2420::readRegister(uint16_t chip, uint16_t reg, uint16_t & out) {
+	CommandTransaction tx(*this);
+	if (!tx.ok()) return false;
+	if (!enterCommandMode()) {
+		delay(50);
+		exitCommandMode();
+		return false;
+	}
+	delay(50);
+
+	begin_command_(LD2420_OP_READ_REGISTER);
+	send_command_preamble_();
+	ld24xx_write_le16(radar_uart_, 0x0006);                   // intra_len = 6
+	ld24xx_write_le16(radar_uart_, LD2420_OP_READ_REGISTER);  // cmd-word
+	ld24xx_write_le16(radar_uart_, chip);
+	ld24xx_write_le16(radar_uart_, reg);
+	send_command_postamble_();
+	const bool ok = wait_for_ack_(LD2420_OP_READ_REGISTER, radar_uart_command_timeout_);
+
+	if (ok) {
+#if defined(ESP32)
+		portENTER_CRITICAL(&data_mux_);
+#endif
+		out = last_register_value_;
+#if defined(ESP32)
+		portEXIT_CRITICAL(&data_mux_);
+#endif
+	}
+
+	delay(50);
+	exitCommandMode();
+	return ok;
+}
+
+// ---------------------------------------------------------------------------
+// System parameters (§1.2.7 / §1.2.8)
+
+bool ld2420::writeSystemParameter(uint16_t word, uint32_t value) {
+	CommandTransaction tx(*this);
+	if (!tx.ok()) return false;
+	if (!enterCommandMode()) {
+		delay(50);
+		exitCommandMode();
+		return false;
+	}
+	delay(50);
+
+	begin_command_(LD2420_OP_CONFIG_SYS_PARAMS);
+	send_command_preamble_();
+	ld24xx_write_le16(radar_uart_, 0x0008);                       // intra_len = 8
+	ld24xx_write_le16(radar_uart_, LD2420_OP_CONFIG_SYS_PARAMS);  // cmd-word
+	ld24xx_write_le16(radar_uart_, word);
+	ld24xx_write_le32(radar_uart_, value);
+	send_command_postamble_();
+	const bool ok = wait_for_ack_(LD2420_OP_CONFIG_SYS_PARAMS, radar_uart_command_timeout_);
+
+	delay(50);
+	exitCommandMode();
+	return ok;
+}
+
+bool ld2420::readSystemParameter(uint16_t word, uint32_t & out) {
+	CommandTransaction tx(*this);
+	if (!tx.ok()) return false;
+	if (!enterCommandMode()) {
+		delay(50);
+		exitCommandMode();
+		return false;
+	}
+	delay(50);
+
+	begin_command_(LD2420_OP_READ_SYS_PARAMS);
+	send_command_preamble_();
+	ld24xx_write_le16(radar_uart_, 0x0004);                      // intra_len = 4
+	ld24xx_write_le16(radar_uart_, LD2420_OP_READ_SYS_PARAMS);   // cmd-word
+	ld24xx_write_le16(radar_uart_, word);
+	send_command_postamble_();
+	const bool ok = wait_for_ack_(LD2420_OP_READ_SYS_PARAMS, radar_uart_command_timeout_);
+
+	if (ok) {
+#if defined(ESP32)
+		portENTER_CRITICAL(&data_mux_);
+#endif
+		out = last_system_param_value_;
+#if defined(ESP32)
+		portEXIT_CRITICAL(&data_mux_);
+#endif
+	}
+
+	delay(50);
+	exitCommandMode();
+	return ok;
+}
+
+bool ld2420::setSystemMode(uint8_t mode) {
+	return writeSystemParameter(LD2420_SYS_W_MODE, (uint32_t)mode);
+}
+
+bool ld2420::getSystemMode(uint8_t & out) {
+	uint32_t v = 0;
+	if (!readSystemParameter(LD2420_SYS_W_MODE, v)) return false;
+	out = (uint8_t)(v & 0xFF);
+	return true;
 }
 
 // ---------------------------------------------------------------------------
