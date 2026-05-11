@@ -30,8 +30,8 @@ Legend:
 | `0x0000` | §1.2.1 | Read version | ✅ | `requestFirmwareVersion()` → populates `firmware_version_ascii[16]` (NUL-terminated copy), `firmware_version_length`, and a best-effort numeric breakdown into `firmware_major_version` / `firmware_minor_version` / `firmware_patch_version` | `LD2420_HAS_READ_VERSION` |
 | `0x0001` | §1.2.2 | Write register | ✅ | `writeRegister(uint16_t chip, uint16_t reg, uint16_t value)` — single-register only; bulk path can be added if a real use case lands. Wraps its own enter/exitCommandMode pair. | `LD2420_HAS_REGISTER_RW` |
 | `0x0002` | §1.2.3 | Read register | ✅ | `readRegister(uint16_t chip, uint16_t reg, uint16_t & out)` — single-register only. The XLSX V2.2 "Read register" send-frame examples have the intra-length field two bytes short; the driver follows the consistent-with-everything-else convention (`len = full intra including cmd-word`). | `LD2420_HAS_REGISTER_RW` |
-| `0x0007` | §1.2.4 | Configure ABD parameters | ❌ | _not exposed yet_ — payload is `(param_word (2B) + value (4B)) × N`; param words enumerated in `LD2420_ABD_W_*`. Planned: typed setters for global `roiMin`/`roiMax`/`delayTime` and per-block (high/low) frame counts + per-gate threshold packing | `LD2420_HAS_ABD_PARAMS` |
-| `0x0008` | §1.2.5 | Read ABD parameters | ❌ | _not exposed yet_ — request is `(param_word (2B)) × N`; response is `(value (4B)) × N`. Per-gate threshold blocks at `LD2420_ABD_R_HIGH_THRESH_BASE` (0x0020 + gate) and `LD2420_ABD_R_LOW_THRESH_BASE` (0x0030 + gate) | `LD2420_HAS_ABD_PARAMS` |
+| `0x0007` | §1.2.4 | Configure ABD parameters | ✅ | Low-level: `writeAbdParameter(word, value)`. Convenience: `setAbdRoi(min_gate, max_gate)` (writes 0x0000 + 0x0001 in one frame), `setAbdHighThresholdAtGate(gate, threshold)` / `setAbdLowThresholdAtGate(gate, threshold)` (handle the `gate (low16) \| threshold (high16)` packing for write words 0x0012 / 0x0022). | `LD2420_HAS_ABD_PARAMS` |
+| `0x0008` | §1.2.5 | Read ABD parameters | ✅ | Low-level: `readAbdParameter(word, &out)`. Convenience: `readAbdHighThresholdAtGate(gate, &out)` / `readAbdLowThresholdAtGate(gate, &out)` for the per-gate blocks at `LD2420_ABD_R_HIGH_THRESH_BASE` (0x0020 + gate) and `LD2420_ABD_R_LOW_THRESH_BASE` (0x0030 + gate). | `LD2420_HAS_ABD_PARAMS` |
 | `0x0011` | §1.2.6 | Read serial number | ❌ | _not exposed yet_ — response is `module_id (2B) + sn (4B)` | `LD2420_HAS_SERIAL_NUMBER` |
 | `0x0012` | §1.2.7 | Configure system parameters | ✅ | `writeSystemParameter(uint16_t word, uint32_t value)` (low-level), `setSystemMode(uint8_t mode)` (high-level wrapper for `LD2420_SYS_W_MODE`). Single-word only — bulk path waits for a real use case. | `LD2420_HAS_SYSTEM_PARAMS` |
 | `0x0013` | §1.2.8 | Read system parameters | ✅ | `readSystemParameter(uint16_t word, uint32_t & out)` (low-level), `getSystemMode(uint8_t & out)` (high-level). | `LD2420_HAS_SYSTEM_PARAMS` |
@@ -57,16 +57,16 @@ Legend:
 
 Priority order, highest-impact first:
 
-1. **`writeAbdParameter` / `readAbdParameter`** (0x0007 / 0x0008) — drives
-   the on-chip ABD detection policy. The per-gate threshold packing
-   (`gate (2B) | threshold (2B)` inside the 4-byte value of word `0x0012`)
-   makes this a non-trivial wrapper.
-2. **`parse_data_frame_()` real implementation** — decode the per-gate FFT
+1. **`parse_data_frame_()` real implementation** — decode the per-gate FFT
    energies into a `uint16_t energies[LD2420_GATE_COUNT]` snapshot field
-   plus an atomic snapshot getter.
-3. **`requestSerialNumber()`** (0x0011) — quick win.
-4. **Factory-test commands** (0x0024 / 0x0025 / 0x0026) — niche but
+   plus an atomic snapshot getter. Blocked on transcribing the data-frame
+   layout from the LD2420 product-manual PDF.
+2. **`requestSerialNumber()`** (0x0011) — quick win.
+3. **Factory-test commands** (0x0024 / 0x0025 / 0x0026) — niche but
    completes the V2.2 surface.
+4. **Bulk variants** of register r/w, system params, ABD params (multiple
+   entries per frame) — not blocking any concrete use case, but completes
+   the wire-protocol surface.
 
 ---
 
@@ -82,7 +82,7 @@ Priority order, highest-impact first:
 | 6 | Register r/w (0x0001 / 0x0002) | ✅ done |
 | 7 | System params (0x0012 / 0x0013) + `setSystemMode` / `getSystemMode` | ✅ done |
 | 8 | ESP32 dual-core release-acquire fix in `parse_command_frame_` (member fields are now written before `cmd_ack_seq_` is bumped) | ✅ done |
-| 9 | ABD params (0x0007 / 0x0008) — typed setters + per-gate threshold packing | ⏳ next PR |
+| 9 | ABD params (0x0007 / 0x0008) — low-level `writeAbdParameter` / `readAbdParameter` + convenience `setAbdRoi`, per-gate threshold setters/getters with the `gate \| threshold` packing helper | ✅ done |
 | 10 | `parse_data_frame_()` real FFT-energy decode | ⏳ blocked on transcribing data-frame layout from product-manual PDF |
 | 11 | Serial number (0x0011) | ⏳ |
 | 12 | Factory-test mode (0x0024 / 0x0025 / 0x0026) | ⏳ |

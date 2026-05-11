@@ -306,7 +306,20 @@ bool ld2420::parse_command_frame_() {
 				}
 				break;
 
+			case LD2420_OP_READ_ABD_PARAMS:
+				// Single-word read: 4 bytes of parameter value (LE). Bulk
+				// path can stash an array under cmd_seq_ once exposed.
+				if (result_len >= 4) {
+					last_abd_param_value_ =
+						(uint32_t)payload[0]
+						| ((uint32_t)payload[1] << 8)
+						| ((uint32_t)payload[2] << 16)
+						| ((uint32_t)payload[3] << 24);
+				}
+				break;
+
 			case LD2420_OP_WRITE_REGISTER:
+			case LD2420_OP_CONFIG_ABD_PARAMS:
 			case LD2420_OP_CONFIG_SYS_PARAMS:
 			case LD2420_OP_END_CFG:
 			default:
@@ -669,6 +682,127 @@ bool ld2420::getSystemMode(uint8_t & out) {
 	uint32_t v = 0;
 	if (!readSystemParameter(LD2420_SYS_W_MODE, v)) return false;
 	out = (uint8_t)(v & 0xFF);
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// ABD parameters (§1.2.4 / §1.2.5)
+//
+// Per-gate threshold packing (write words 0x0012 / 0x0022, per §1.2.4):
+//   bits [15:0]  = gate index (0..15)
+//   bits [31:16] = threshold value
+// e.g. the §1.2.4 example for gate 5 / threshold 0x1234 transmits the four
+// bytes `05 00 34 12` — i.e. uint32_t = 0x12340005 on the wire (LE).
+
+bool ld2420::writeAbdParameter(uint16_t word, uint32_t value) {
+	CommandTransaction tx(*this);
+	if (!tx.ok()) return false;
+	if (!enterCommandMode()) {
+		delay(50);
+		exitCommandMode();
+		return false;
+	}
+	delay(50);
+
+	begin_command_(LD2420_OP_CONFIG_ABD_PARAMS);
+	send_command_preamble_();
+	ld24xx_write_le16(radar_uart_, 0x0008);                       // intra_len = 8
+	ld24xx_write_le16(radar_uart_, LD2420_OP_CONFIG_ABD_PARAMS);  // cmd-word
+	ld24xx_write_le16(radar_uart_, word);
+	ld24xx_write_le32(radar_uart_, value);
+	send_command_postamble_();
+	const bool ok = wait_for_ack_(LD2420_OP_CONFIG_ABD_PARAMS, radar_uart_command_timeout_);
+
+	delay(50);
+	exitCommandMode();
+	return ok;
+}
+
+bool ld2420::readAbdParameter(uint16_t word, uint32_t & out) {
+	CommandTransaction tx(*this);
+	if (!tx.ok()) return false;
+	if (!enterCommandMode()) {
+		delay(50);
+		exitCommandMode();
+		return false;
+	}
+	delay(50);
+
+	begin_command_(LD2420_OP_READ_ABD_PARAMS);
+	send_command_preamble_();
+	ld24xx_write_le16(radar_uart_, 0x0004);                     // intra_len = 4
+	ld24xx_write_le16(radar_uart_, LD2420_OP_READ_ABD_PARAMS);  // cmd-word
+	ld24xx_write_le16(radar_uart_, word);
+	send_command_postamble_();
+	const bool ok = wait_for_ack_(LD2420_OP_READ_ABD_PARAMS, radar_uart_command_timeout_);
+
+	if (ok) {
+#if defined(ESP32)
+		portENTER_CRITICAL(&data_mux_);
+#endif
+		out = last_abd_param_value_;
+#if defined(ESP32)
+		portEXIT_CRITICAL(&data_mux_);
+#endif
+	}
+
+	delay(50);
+	exitCommandMode();
+	return ok;
+}
+
+bool ld2420::setAbdRoi(uint16_t min_gate, uint16_t max_gate) {
+	// Sets both LD2420_ABD_W_ROI_MIN (0x0000) and LD2420_ABD_W_ROI_MAX
+	// (0x0001) in a single 0x0007 frame. Intra layout:
+	//   cmd_word (2) + word_min (2) + value_min (4) + word_max (2) + value_max (4) = 14 B
+	CommandTransaction tx(*this);
+	if (!tx.ok()) return false;
+	if (!enterCommandMode()) {
+		delay(50);
+		exitCommandMode();
+		return false;
+	}
+	delay(50);
+
+	begin_command_(LD2420_OP_CONFIG_ABD_PARAMS);
+	send_command_preamble_();
+	ld24xx_write_le16(radar_uart_, 0x000E);                       // intra_len = 14
+	ld24xx_write_le16(radar_uart_, LD2420_OP_CONFIG_ABD_PARAMS);
+	ld24xx_write_le16(radar_uart_, LD2420_ABD_W_ROI_MIN);
+	ld24xx_write_le32(radar_uart_, (uint32_t)min_gate);
+	ld24xx_write_le16(radar_uart_, LD2420_ABD_W_ROI_MAX);
+	ld24xx_write_le32(radar_uart_, (uint32_t)max_gate);
+	send_command_postamble_();
+	const bool ok = wait_for_ack_(LD2420_OP_CONFIG_ABD_PARAMS, radar_uart_command_timeout_);
+
+	delay(50);
+	exitCommandMode();
+	return ok;
+}
+
+bool ld2420::setAbdHighThresholdAtGate(uint16_t gate, uint16_t threshold) {
+	const uint32_t packed = ((uint32_t)threshold << 16) | (uint32_t)(gate & 0xFFFF);
+	return writeAbdParameter(LD2420_ABD_W_HIGH_THRESHOLD, packed);
+}
+
+bool ld2420::setAbdLowThresholdAtGate(uint16_t gate, uint16_t threshold) {
+	const uint32_t packed = ((uint32_t)threshold << 16) | (uint32_t)(gate & 0xFFFF);
+	return writeAbdParameter(LD2420_ABD_W_LOW_THRESHOLD, packed);
+}
+
+bool ld2420::readAbdHighThresholdAtGate(uint16_t gate, uint16_t & out) {
+	if (gate > LD2420_GATE_INDEX_LAST) return false;
+	uint32_t v = 0;
+	if (!readAbdParameter((uint16_t)(LD2420_ABD_R_HIGH_THRESH_BASE + gate), v)) return false;
+	out = (uint16_t)(v & 0xFFFF);
+	return true;
+}
+
+bool ld2420::readAbdLowThresholdAtGate(uint16_t gate, uint16_t & out) {
+	if (gate > LD2420_GATE_INDEX_LAST) return false;
+	uint32_t v = 0;
+	if (!readAbdParameter((uint16_t)(LD2420_ABD_R_LOW_THRESH_BASE + gate), v)) return false;
+	out = (uint16_t)(v & 0xFFFF);
 	return true;
 }
 

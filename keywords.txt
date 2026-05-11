@@ -57,6 +57,13 @@ writeSystemParameter	KEYWORD2
 readSystemParameter	KEYWORD2
 setSystemMode	KEYWORD2
 getSystemMode	KEYWORD2
+writeAbdParameter	KEYWORD2
+readAbdParameter	KEYWORD2
+setAbdRoi	KEYWORD2
+setAbdHighThresholdAtGate	KEYWORD2
+setAbdLowThresholdAtGate	KEYWORD2
+readAbdHighThresholdAtGate	KEYWORD2
+readAbdLowThresholdAtGate	KEYWORD2
 
 firmware_major_version	LITERAL1
 firmware_patch_version	LITERAL1

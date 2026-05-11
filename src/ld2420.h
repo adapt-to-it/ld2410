@@ -112,6 +112,54 @@ class ld2420 {
 		bool writeRegister(uint16_t chip, uint16_t reg, uint16_t value);
 		bool readRegister (uint16_t chip, uint16_t reg, uint16_t & out);
 
+		// ---- ABD parameters (HLK-2420 §1.2.4 / §1.2.5) --------------------
+		// "ABD" = Adaptive Background Detection — the per-gate threshold
+		// system the LD2420 uses to classify FFT energies into a presence
+		// decision. There are TWO independent threshold blocks (high and
+		// low) each with its own active/inactive frame counts and per-gate
+		// threshold values; plus three global parameters (roiMin, roiMax,
+		// delayTime) used by both blocks.
+		//
+		// Note on the protocol's asymmetric vocabulary: the WRITE words
+		// (LD2420_ABD_W_*) treat roiMin/roiMax/delayTime as global single
+		// parameters, but the READ words (LD2420_ABD_R_*) report them
+		// separately per high/low block — so reading them back yields two
+		// values where a single write only set one. Both vocabularies are
+		// exposed verbatim by the low-level API below; the convenience
+		// setters use the global write words.
+		//
+		// 0x0007 send payload: `(write_word (2B) + value (4B)) × N`.
+		// 0x0008 send payload: `(read_word (2B)) × N`; ACK result data is
+		// the 4-byte value per requested word (LE).
+		//
+		// Single-word path for both. Each wraps its own enter/exit cfg pair.
+		bool writeAbdParameter(uint16_t word, uint32_t value);
+		bool readAbdParameter (uint16_t word, uint32_t & out);
+
+		// Convenience — global ROI: writes 0x0000 (roiMin) and 0x0001
+		// (roiMax) in a single 0x0007 frame (intra = 14 bytes). Single
+		// command-mode roundtrip per call.
+		bool setAbdRoi(uint16_t min_gate, uint16_t max_gate);
+
+		// Convenience — per-gate threshold setters. The radar's 0x0012
+		// (high) and 0x0022 (low) write words use a packed 4-byte value:
+		//   bits [15:0]   = gate index (0..15)
+		//   bits [31:16]  = threshold value (squared 2DFFT modulus)
+		// e.g. the §1.2.4 example for gate 5 threshold 0x1234 is sent as
+		// the four bytes `05 00 34 12` — i.e. uint32_t = 0x12340005.
+		// These helpers do the packing for you.
+		bool setAbdHighThresholdAtGate(uint16_t gate, uint16_t threshold);
+		bool setAbdLowThresholdAtGate (uint16_t gate, uint16_t threshold);
+
+		// Convenience — per-gate threshold readback. Uses the per-gate
+		// READ words at LD2420_ABD_R_HIGH_THRESH_BASE + gate (0x0020..0x002F)
+		// and LD2420_ABD_R_LOW_THRESH_BASE + gate (0x0030..0x003F). The
+		// 4-byte value returned by the radar is the threshold only (no
+		// gate-index packing on the read side per Table 6); helpers narrow
+		// to uint16_t for the caller.
+		bool readAbdHighThresholdAtGate(uint16_t gate, uint16_t & out);
+		bool readAbdLowThresholdAtGate (uint16_t gate, uint16_t & out);
+
 		// ---- System parameters (HLK-2420 §1.2.7 / §1.2.8) -----------------
 		// Generic read / write of the system parameter words enumerated in
 		// LD2420_SYS_W_*. Each parameter is a 4-byte LE value.
@@ -198,6 +246,7 @@ class ld2420 {
 		// not see torn values.
 		uint16_t last_register_value_     = 0;   // 0x0102 ACK payload
 		uint32_t last_system_param_value_ = 0;   // 0x0113 ACK payload
+		uint32_t last_abd_param_value_    = 0;   // 0x0108 ACK payload
 
 		uint8_t  circular_buffer[LD2420_BUFFER_SIZE];
 		uint16_t buffer_head = 0;
