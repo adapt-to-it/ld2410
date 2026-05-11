@@ -66,6 +66,22 @@
 #  endif
 #endif
 
+// Atomic snapshot of the per-frame target state. Use snapshotTargetState()
+// to fill this in one critical section when reading from a context that may
+// run concurrently with autoReadTask on ESP32 dual-core; calling the
+// individual getters separately can observe torn state where presence
+// already reflects the new frame but distance / gate energies still hold
+// the previous frame's values.
+//
+// gate_energies is the squared 2DFFT modulus per range gate as decoded
+// from the energy frame (see docs/HLK-LD2420_data_format.md). Higher
+// values mean more reflected energy at that gate.
+struct LD2420TargetState {
+    bool     presence;
+    uint16_t distance_cm;
+    uint16_t gate_energies[16];
+};
+
 class ld2420 {
 
 	public:
@@ -76,6 +92,41 @@ class ld2420 {
 		void debug(Stream & terminalStream);
 		bool isConnected();
 		bool read();
+
+		// ---- Data-frame state accessors -----------------------------------
+		// Populated by parse_data_frame_() every time the radar emits an
+		// energy frame (45 bytes, header F4 F3 F2 F1 / footer F8 F7 F6 F5;
+		// see docs/HLK-LD2420_data_format.md). The radar emits these
+		// continuously while outside command mode and its system mode is
+		// configured for per-gate energy output.
+		//
+		// presenceDetected() returns the radar's on-chip ABD classifier
+		// decision. The host can also implement its own classifier on top
+		// of the raw gate energies if a different policy is wanted.
+		//
+		// targetDistance() is in centimetres. Valid only when presence is
+		// true; the field may hold stale data otherwise.
+		//
+		// gateEnergy(gate) returns the squared 2DFFT modulus at gate
+		// (0..LD2420_GATE_INDEX_LAST). Out-of-range gates return 0.
+		//
+		// dataFrameReceived() flips true the first time any energy frame
+		// is parsed and stays true. Useful to gate "is the radar streaming?"
+		// checks separate from "did the last command get an ACK?".
+		//
+		// These individual getters are NOT atomic against concurrent
+		// autoReadTask writes on ESP32 dual-core — use snapshotTargetState()
+		// when iterating multiple fields together.
+		bool     presenceDetected();
+		uint16_t targetDistance();
+		uint16_t gateEnergy(uint8_t gate);
+		bool     dataFrameReceived();
+
+		// Atomic snapshot of the per-frame target state under
+		// portMUX(data_mux_) on ESP32. On non-ESP32 platforms the lock
+		// degenerates to a single memcpy-style copy (single-thread
+		// assumption — no FreeRTOS scheduler).
+		void snapshotTargetState(LD2420TargetState & out) const;
 
 		// ---- Command mode (HLK-2420 §1.2.13 / §1.2.14) --------------------
 		// The LD2420 emits waveform data by default; any command issued
@@ -247,6 +298,14 @@ class ld2420 {
 		uint16_t last_register_value_     = 0;   // 0x0102 ACK payload
 		uint32_t last_system_param_value_ = 0;   // 0x0113 ACK payload
 		uint32_t last_abd_param_value_    = 0;   // 0x0108 ACK payload
+
+		// Data-frame state — written by parse_data_frame_(), read by the
+		// public getters and snapshotTargetState(). Guarded by data_mux_ on
+		// ESP32 so getters do not see torn writes from autoReadTask.
+		bool     presence_detected_       = false;
+		uint16_t target_distance_cm_      = 0;
+		uint16_t gate_energies_[LD2420_GATE_COUNT] = {};
+		bool     data_frame_received_     = false;
 
 		uint8_t  circular_buffer[LD2420_BUFFER_SIZE];
 		uint16_t buffer_head = 0;

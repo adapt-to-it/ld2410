@@ -7,9 +7,10 @@
  *	     command mode, reading 0x0000, and leaving command mode.
  *	  3. Prints the firmware version string and protocol-version / buffer
  *	     fields populated by enterCommandMode().
- *	  4. Loops calling read() — currently a no-op for the data path because
- *	     the FFT-energy parser is not yet implemented (see roadmap in
- *	     docs/ld2420-method-coverage.md).
+ *	  4. Loops calling read() and, once an energy frame has been parsed,
+ *	     prints presence + distance + gate-4 FFT energy. The radar must be
+ *	     in a system mode that emits per-gate energy frames; see
+ *	     setSystemMode() in docs/10-api-ld2420.md.
  *
  *	STATUS: UNVERIFIED ON HARDWARE — see banner in src/ld2420.h.
  */
@@ -56,5 +57,21 @@ void setup() {
 
 void loop() {
 	radar.read();
-	delay(50);
+
+	// Throttle status print to ~1 Hz so the monitor stays readable; the
+	// radar itself emits energy frames at its own (configurable) rate.
+	static uint32_t last_print = 0;
+	if (millis() - last_print > 1000) {
+		last_print = millis();
+		if (radar.dataFrameReceived()) {
+			LD2420TargetState state;
+			radar.snapshotTargetState(state);
+			Serial.print(F("presence="));
+			Serial.print(state.presence ? F("yes") : F("no "));
+			Serial.print(F("  distance="));
+			Serial.print(state.distance_cm);
+			Serial.print(F(" cm  g4_energy="));
+			Serial.println(state.gate_energies[4]);
+		}
+	}
 }

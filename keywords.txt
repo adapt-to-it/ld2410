@@ -64,6 +64,11 @@ setAbdHighThresholdAtGate	KEYWORD2
 setAbdLowThresholdAtGate	KEYWORD2
 readAbdHighThresholdAtGate	KEYWORD2
 readAbdLowThresholdAtGate	KEYWORD2
+targetDistance	KEYWORD2
+gateEnergy	KEYWORD2
+dataFrameReceived	KEYWORD2
+snapshotTargetState	KEYWORD2
+LD2420TargetState	KEYWORD1
 
 firmware_major_version	LITERAL1
 firmware_patch_version	LITERAL1

@@ -45,7 +45,8 @@ except in lockstep with code changes:
 | [`HLK-LD2410_protocol.md`](HLK-LD2410_protocol.md) | Original HLK protocol spec for the LD2410 base. |
 | [`HLK-LD2410C_protocol.md`](HLK-LD2410C_protocol.md) | Original HLK protocol spec for the LD2410C. |
 | [`HLK-LD2410S_protocol.md`](HLK-LD2410S_protocol.md) | Original HLK protocol spec for the LD2410S. |
-| [`HLK-LD2420_protocol.md`](HLK-LD2420_protocol.md) | Original HLK protocol spec for the LD2420 sibling sensor. |
+| [`HLK-LD2420_protocol.md`](HLK-LD2420_protocol.md) | Original HLK protocol spec for the LD2420 sibling sensor (command side, V2.2 XLSX). |
+| [`HLK-LD2420_data_format.md`](HLK-LD2420_data_format.md) | LD2420 data-frame (radar→host energy report) byte-level layout, cross-checked against ESPHome. |
 
 ## Examples
 

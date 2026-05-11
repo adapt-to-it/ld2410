@@ -16,14 +16,27 @@
 
 #include "ld24xx_common.h"
 
-// Data path (radar → host) — energy report frames. HLK-2420 product manual:
-//   header  F1 F2 F3 F4  (wire byte order — little-endian uint32 0xF4F3F2F1)
-//   footer  F5 F6 F7 F8  (wire byte order — little-endian uint32 0xF8F7F6F5)
+// Data path (radar → host) — energy report frames.
 //
-// Note this is the byte-reverse of LD2410's F4 F3 F2 F1 / F8 F7 F6 F5. The
-// two chip families intentionally do not share the data envelope so a host
-// listening to both can disambiguate on the first four header bytes.
-constexpr uint8_t LD2420_DATA_FRAME_HEAD[4] = { 0xF1, 0xF2, 0xF3, 0xF4 };
-constexpr uint8_t LD2420_DATA_FRAME_TAIL[4] = { 0xF5, 0xF6, 0xF7, 0xF8 };
+// Wire byte order:
+//   header  F4 F3 F2 F1   (little-endian uint32 0xF1F2F3F4)
+//   footer  F8 F7 F6 F5   (little-endian uint32 0xF5F6F7F8)
+//
+// IMPORTANT: this is THE SAME on-wire byte order as the LD2410 family
+// (cf. LD2410_DATA_FRAME_HEAD / LD2410_DATA_FRAME_TAIL in ld2410_frame.h).
+// Earlier drafts of this header AND the docs claimed the LD2420 envelope
+// was byte-reversed; that was a misreading of ESPHome's `ENERGY_FRAME_HEADER
+// = 0xF1F2F3F4` constant, which produces F4 F3 F2 F1 on the wire when stored
+// little-endian — not F1 F2 F3 F4. The actual wire bytes match LD2410.
+//
+// Provenance: cross-checked against ESPHome's production `ld2420` component
+// (esphome/esphome) which has been validated against real LD2420 hardware
+// for years. The Hi-Link V2.2 XLSX (docs/HLK-LD2420_protocol.md) covers
+// only the command side; the data-frame layout lives in the LD2420 product
+// manual PDF which is not redistributed in this repository.
+//
+// See docs/HLK-LD2420_data_format.md for the full intra-frame layout.
+constexpr uint8_t LD2420_DATA_FRAME_HEAD[4] = { 0xF4, 0xF3, 0xF2, 0xF1 };
+constexpr uint8_t LD2420_DATA_FRAME_TAIL[4] = { 0xF8, 0xF7, 0xF6, 0xF5 };
 
 #endif

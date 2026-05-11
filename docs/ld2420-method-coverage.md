@@ -49,7 +49,7 @@ Legend:
 
 | Frame | Section | Status | Parser status |
 |---|---|:-:|---|
-| Energy-report frame (header `F1 F2 F3 F4`, footer `F5 F6 F7 F8`, intra-frame layout from product manual PDF) | §1.1.2 + product manual | 🟡 | `read_frame_()` recognises the envelope and validates the trailer; `parse_data_frame_()` is a stub — discards the frame and updates `radar_uart_last_packet_` only. Full FFT-energy decode lands once the product-manual data-frame layout is transcribed into a dedicated `docs/HLK-LD2420_data_format.md`. |
+| Energy-report frame (header `F4 F3 F2 F1`, footer `F8 F7 F6 F5`, 45 bytes total) | not in V2.2 XLSX — see [`docs/HLK-LD2420_data_format.md`](HLK-LD2420_data_format.md) (cross-checked against ESPHome's `ld2420` component) | ✅ | `parse_data_frame_()` decodes the 1-byte presence flag at offset 6, the LE16 distance (cm) at offsets 7..8, and the 16 × LE16 per-gate energies at offsets 9..40. Exposed via `presenceDetected()` / `targetDistance()` / `gateEnergy(gate)` and the atomic `snapshotTargetState(LD2420TargetState &)`. The on-wire envelope is the SAME as the LD2410 family (`F4 F3 F2 F1` / `F8 F7 F6 F5`) — earlier docs claimed it was byte-reversed, which was wrong. |
 
 ---
 
@@ -57,13 +57,14 @@ Legend:
 
 Priority order, highest-impact first:
 
-1. **`parse_data_frame_()` real implementation** — decode the per-gate FFT
-   energies into a `uint16_t energies[LD2420_GATE_COUNT]` snapshot field
-   plus an atomic snapshot getter. Blocked on transcribing the data-frame
-   layout from the LD2420 product-manual PDF.
-2. **`requestSerialNumber()`** (0x0011) — quick win.
-3. **Factory-test commands** (0x0024 / 0x0025 / 0x0026) — niche but
+1. **`requestSerialNumber()`** (0x0011) — quick win.
+2. **Factory-test commands** (0x0024 / 0x0025 / 0x0026) — niche but
    completes the V2.2 surface.
+3. **Non-energy data-frame modes** — the energy frame (45 B) is decoded;
+   the product manual additionally documents 1DFFT / 2DFFT / 2DFFT-peak /
+   DSRAW outputs selectable via the factory-test data-type field
+   (`LD2420_FT_DATA_TYPE_*`). Adding them is uninteresting until factory-
+   test command support lands.
 4. **Bulk variants** of register r/w, system params, ABD params (multiple
    entries per frame) — not blocking any concrete use case, but completes
    the wire-protocol surface.
@@ -83,7 +84,7 @@ Priority order, highest-impact first:
 | 7 | System params (0x0012 / 0x0013) + `setSystemMode` / `getSystemMode` | ✅ done |
 | 8 | ESP32 dual-core release-acquire fix in `parse_command_frame_` (member fields are now written before `cmd_ack_seq_` is bumped) | ✅ done |
 | 9 | ABD params (0x0007 / 0x0008) — low-level `writeAbdParameter` / `readAbdParameter` + convenience `setAbdRoi`, per-gate threshold setters/getters with the `gate \| threshold` packing helper | ✅ done |
-| 10 | `parse_data_frame_()` real FFT-energy decode | ⏳ blocked on transcribing data-frame layout from product-manual PDF |
+| 10 | `parse_data_frame_()` real FFT-energy decode — 45-byte energy frame (presence + distance + 16 × LE16 per-gate energies); state exposed via `presenceDetected` / `targetDistance` / `gateEnergy` / atomic `snapshotTargetState`. Also fixed the byte-order misreading in `ld2420_frame.h`: on-wire data envelope is `F4 F3 F2 F1` / `F8 F7 F6 F5`, same as LD2410. Provenance in [`docs/HLK-LD2420_data_format.md`](HLK-LD2420_data_format.md). | ✅ done |
 | 11 | Serial number (0x0011) | ⏳ |
 | 12 | Factory-test mode (0x0024 / 0x0025 / 0x0026) | ⏳ |
 | 13 | Hardware validation against a physical LD2420 sample | ⏳ blocked on bench acquisition |

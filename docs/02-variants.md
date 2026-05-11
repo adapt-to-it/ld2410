@@ -129,18 +129,26 @@ ld2420 radar;
 
 Why a separate class instead of a fourth `LD2410_VARIANT_*` flag:
 
-- The LD2420 reports **raw 2DFFT energies**, not classified presence /
-  distance — the API surface (`presenceDetected()`, `movingTarget*()`)
+- The LD2420 reports **raw 2DFFT energies + a single presence flag and
+  one distance**, not the classified-target structure (moving target +
+  stationary target + engineering per-gate split) of LD2410. The API
+  surface (`movingTargetDetected()`, `stationaryTargetEnergy()`, …)
   simply does not apply.
 - The command vocabulary is register-level and ABD-parameter based, not
   the "set max gate" / "engineering mode" high-level commands of LD2410.
-- The data-frame envelope is **byte-reversed** (`F1 F2 F3 F4 / F5 F6 F7
-  F8`) so a host listening to both chips can disambiguate on the first
-  four header bytes.
 
-What the two classes do share:
-- The command-frame envelope (`FD FC FB FA / 04 03 02 01`) and LE write
-  helpers, factored into [`src/ld24xx_common.h`](../src/ld24xx_common.h).
+What the two classes do share (more than originally claimed):
+
+- The **command-frame envelope** (`FD FC FB FA / 04 03 02 01`) and LE
+  write helpers, factored into
+  [`src/ld24xx_common.h`](../src/ld24xx_common.h).
+- The **data-frame envelope** on the wire (`F4 F3 F2 F1 / F8 F7 F6 F5`).
+  Earlier drafts of this page claimed the LD2420 envelope was
+  "byte-reversed" — that was a misreading of ESPHome's
+  `ENERGY_FRAME_HEADER = 0xF1F2F3F4` constant (which, stored
+  little-endian, produces the same `F4 F3 F2 F1` bytes as LD2410). The
+  two frame types remain distinguishable on the *intra-frame content*,
+  not on the envelope.
 - The ESP32 `autoReadTask` + command-mutex pattern.
 
 For users that only use one chip, the linker drops the unused class —

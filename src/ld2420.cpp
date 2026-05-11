@@ -395,16 +395,148 @@ void ld2420::store_firmware_version_(const uint8_t * payload, uint16_t len) {
 }
 
 // ---------------------------------------------------------------------------
-// Data-frame parser — STUB. The LD2420 emits FFT-energy frames whose payload
-// layout is documented in the LD2420 product manual PDF, not in the V2.2
-// XLSX this driver currently targets. Returning false here means read()
-// reports "no frame this call" for data frames; the host-visible state stays
-// unchanged. A later PR will fill this in once we have a transcribed copy of
-// the data-frame layout from the product manual.
+// Data-frame parser — energy frame.
+//
+// Wire layout (45 bytes total, see docs/HLK-LD2420_data_format.md):
+//   [0..3]   F4 F3 F2 F1                    head
+//   [4..5]   LE16 intra_len = 0x0023 = 35   length of bytes 6..40
+//   [6]      presence                       uint8_t (0 / 1)
+//   [7..8]   distance_cm                    LE uint16_t
+//   [9..40]  gate_energies[0..15]           16 × LE uint16_t (32 B)
+//   [41..44] F8 F7 F6 F5                    tail
+//
+// Provenance: cross-checked against ESPHome's `ld2420` component. Not in
+// the Hi-Link V2.2 XLSX (command-only).
+//
+// The radar may emit other frame types in other system modes; this parser
+// matches strictly on intra_len == 35 to recognise the energy frame. Frames
+// with a different length are silently dropped — host-visible state stays
+// unchanged so the caller's loop keeps working until the radar is in a
+// supported mode.
 
 bool ld2420::parse_data_frame_() {
+	if (last_valid_frame_length != 45) {
+		// Not the energy frame layout we know how to decode. Update the
+		// liveness timestamp anyway so isConnected() reflects that the
+		// radar is talking — we just can't extract fields.
+		radar_uart_last_packet_ = millis();
+		return false;
+	}
+
+	const uint16_t intra_len =
+		(uint16_t)radar_data_frame_[4] |
+		((uint16_t)radar_data_frame_[5] << 8);
+	if (intra_len != 0x0023) {
+		// Belt-and-suspenders: total-length check above is already a strict
+		// enough match, but explicit on the documented constant makes the
+		// intent obvious to future readers.
+		radar_uart_last_packet_ = millis();
+		return false;
+	}
+
+	const bool     pres = radar_data_frame_[6] != 0;
+	const uint16_t dist =
+		(uint16_t)radar_data_frame_[7] |
+		((uint16_t)radar_data_frame_[8] << 8);
+
+	uint16_t energies[LD2420_GATE_COUNT];
+	for (uint8_t g = 0; g < LD2420_GATE_COUNT; g++) {
+		const uint16_t off = 9 + (uint16_t)g * 2;
+		energies[g] =
+			(uint16_t)radar_data_frame_[off] |
+			((uint16_t)radar_data_frame_[off + 1] << 8);
+	}
+
+#if defined(ESP32)
+	portENTER_CRITICAL(&data_mux_);
+#endif
+	presence_detected_  = pres;
+	target_distance_cm_ = dist;
+	for (uint8_t g = 0; g < LD2420_GATE_COUNT; g++) {
+		gate_energies_[g] = energies[g];
+	}
+	data_frame_received_ = true;
+#if defined(ESP32)
+	portEXIT_CRITICAL(&data_mux_);
+#endif
+
 	radar_uart_last_packet_ = millis();
-	return false;
+
+#if defined(LD2420_DEBUG_DATA)
+	if (debug_uart_ != nullptr) {
+		debug_uart_->print(F("ld2420 energy frame: presence="));
+		debug_uart_->print(pres ? 1 : 0);
+		debug_uart_->print(F(" distance_cm="));
+		debug_uart_->println(dist);
+	}
+#endif
+	return true;
+}
+
+// ---------------------------------------------------------------------------
+// Data-frame state accessors.
+
+bool ld2420::presenceDetected() {
+	bool v;
+#if defined(ESP32)
+	portENTER_CRITICAL(&data_mux_);
+#endif
+	v = presence_detected_;
+#if defined(ESP32)
+	portEXIT_CRITICAL(&data_mux_);
+#endif
+	return v;
+}
+
+uint16_t ld2420::targetDistance() {
+	uint16_t v;
+#if defined(ESP32)
+	portENTER_CRITICAL(&data_mux_);
+#endif
+	v = target_distance_cm_;
+#if defined(ESP32)
+	portEXIT_CRITICAL(&data_mux_);
+#endif
+	return v;
+}
+
+uint16_t ld2420::gateEnergy(uint8_t gate) {
+	if (gate >= LD2420_GATE_COUNT) return 0;
+	uint16_t v;
+#if defined(ESP32)
+	portENTER_CRITICAL(&data_mux_);
+#endif
+	v = gate_energies_[gate];
+#if defined(ESP32)
+	portEXIT_CRITICAL(&data_mux_);
+#endif
+	return v;
+}
+
+bool ld2420::dataFrameReceived() {
+	bool v;
+#if defined(ESP32)
+	portENTER_CRITICAL(&data_mux_);
+#endif
+	v = data_frame_received_;
+#if defined(ESP32)
+	portEXIT_CRITICAL(&data_mux_);
+#endif
+	return v;
+}
+
+void ld2420::snapshotTargetState(LD2420TargetState & out) const {
+#if defined(ESP32)
+	portENTER_CRITICAL(&data_mux_);
+#endif
+	out.presence    = presence_detected_;
+	out.distance_cm = target_distance_cm_;
+	for (uint8_t g = 0; g < LD2420_GATE_COUNT; g++) {
+		out.gate_energies[g] = gate_energies_[g];
+	}
+#if defined(ESP32)
+	portEXIT_CRITICAL(&data_mux_);
+#endif
 }
 
 // ---------------------------------------------------------------------------
