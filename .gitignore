@@ -36,6 +36,7 @@ tests/test_parser
 tests/test_parser_basec
 tests/test_parser_c
 tests/test_parser_s
+tests/test_parser_ld2420
 
 # Arduino
 .development

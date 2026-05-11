@@ -69,11 +69,13 @@ Remaining work is validation and convenience:
 2. **Bulk variants** of register r/w, system params, ABD params (multiple
    entries per frame) — not blocking any concrete use case, but completes
    the wire-protocol surface for callers who want fewer round-trips.
-3. **Host parser unit test** under `tests/test_parser_ld2420/` — mirror
-   the LD2410-family test harness so the parser is validated without
-   needing an LD2420 on the bench.
-4. **Hardware validation** against a physical LD2420 — blocked on bench
-   acquisition.
+3. **Hardware validation** against a physical LD2420 — blocked on bench
+   acquisition. The host parser test (`tests/test_parser_ld2420.cpp`,
+   22/22 PASS) exercises every command path and the energy-frame decode
+   against simulated radar responses, so the wire-level logic is
+   covered without needing an LD2420 — but real-radar quirks
+   (timings, ACK ordering anomalies, mode-switch behaviour) can only
+   surface against silicon.
 
 ---
 
@@ -94,4 +96,4 @@ Remaining work is validation and convenience:
 | 11 | Serial number (0x0011) — `requestSerialNumber()` populating `module_identification` + `serial_number` | ✅ done |
 | 12 | Factory-test mode (0x0024 / 0x0025 / 0x0026) — `enterFactoryTestMode` / `exitFactoryTestMode` / `sendFactoryTestResult(address, data)`; entering the mode populates the seven `ft_*` Table-8 fields | ✅ done |
 | 13 | Hardware validation against a physical LD2420 sample | ⏳ blocked on bench acquisition |
-| 14 | Host parser unit test (`tests/test_parser_ld2420/`) mirroring `tests/test_parser*/` for LD2410 | ⏳ |
+| 14 | Host parser unit test (`tests/test_parser_ld2420.cpp` + `tests/run.sh` wiring) — 22 test cases covering data-frame decode (5), command ACK roundtrips (15: open/close mode, firmware version, register r/w, system params + setSystemMode/getSystemMode, ABD params + per-gate threshold packing + setAbdRoi, serial number, factory-test enter/exit/sendResult), plus 2 edge cases (ACK status≠0, ACK wrong opcode). 22/22 PASS. | ✅ done |

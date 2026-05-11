@@ -31,3 +31,10 @@ echo
 echo "=== Building & running LD2410_VARIANT_S test suite ==="
 g++ $CXXFLAGS -DLD2410_VARIANT_S $SOURCES -o "$HERE/test_parser_s"
 "$HERE/test_parser_s"
+
+# LD2420 is a sibling sensor with its own class — separate test binary built
+# against src/ld2420.cpp. No LD2410_VARIANT_* flags apply.
+echo
+echo "=== Building & running LD2420 test suite ==="
+g++ $CXXFLAGS "$HERE/test_parser_ld2420.cpp" "$ROOT/src/ld2420.cpp" -o "$HERE/test_parser_ld2420"
+"$HERE/test_parser_ld2420"
