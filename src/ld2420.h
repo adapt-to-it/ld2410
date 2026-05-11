@@ -231,6 +231,45 @@ class ld2420 {
 		bool setSystemMode(uint8_t mode);
 		bool getSystemMode(uint8_t & out);
 
+		// ---- Serial number (HLK-2420 §1.2.6) ------------------------------
+		// 0x0011 — read the module identifier + serial number. ACK payload
+		// is 6 bytes: `module_id (2B LE) + serial_number (4B LE)`. On
+		// success populates `module_identification` and `serial_number`.
+		// Wraps its own enter/exitCommandMode pair.
+		bool requestSerialNumber();
+		uint16_t module_identification = 0;
+		uint32_t serial_number         = 0;
+
+		// ---- Factory test mode (HLK-2420 §1.2.9 / §1.2.10 / §1.2.11) ------
+		// 0x0024 — enter factory test. ACK payload is 14 bytes of radar
+		// metadata (Table 8): sub-board model, cascaded chip count, receive
+		// channels, data-type discriminator (1DFFT / 2DFFT / 2DFFT-peak /
+		// DSRAW — see LD2420_FT_DATA_TYPE_*), 1DFFT size, chirps per frame,
+		// downsampling interval. On success populates the `ft_*` fields.
+		//
+		// 0x0025 — exit factory test. No response payload.
+		//
+		// 0x0026 — send factory test results. Takes a single (address,
+		// data) pair; per the XLSX this command "mainly updates the TX
+		// register". No response payload.
+		//
+		// All three wrap their own enter/exitCommandMode pair. Factory-test
+		// mode is orthogonal to command mode in the protocol — every command
+		// is gated on command mode being open; what makes a command part of
+		// the "factory test" set is whether the radar firmware needs the
+		// test-mode flag (set by 0x0024) before honouring it.
+		bool enterFactoryTestMode();
+		bool exitFactoryTestMode();
+		bool sendFactoryTestResult(uint16_t address, uint16_t data);
+
+		uint16_t ft_subboard_model      = 0;   // reserved by HLK, fill 0
+		uint16_t ft_cascaded_chips      = 0;   // 1 = single, 2 = dual, …
+		uint16_t ft_rx_channels         = 0;
+		uint16_t ft_data_type           = 0;   // LD2420_FT_DATA_TYPE_*
+		uint16_t ft_1dfft_size          = 0;
+		uint16_t ft_chirps_per_frame    = 0;
+		uint16_t ft_downsampling        = 0;   // 1 = no downsampling
+
 		// ---- Firmware version (HLK-2420 §1.2.1) ---------------------------
 		// 0x0000 — read version. The ACK payload is a 2-byte LE length field
 		// followed by an ASCII version string (e.g. "v1.4.14" — 7 bytes).

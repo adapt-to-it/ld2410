@@ -318,9 +318,54 @@ bool ld2420::parse_command_frame_() {
 				}
 				break;
 
+			case LD2420_OP_READ_SN:
+				// 6-byte ACK payload: module_id (2B LE) + serial_number (4B LE).
+				if (result_len >= 6) {
+					module_identification =
+						(uint16_t)payload[0] | ((uint16_t)payload[1] << 8);
+					serial_number =
+						(uint32_t)payload[2]
+						| ((uint32_t)payload[3] << 8)
+						| ((uint32_t)payload[4] << 16)
+						| ((uint32_t)payload[5] << 24);
+				}
+				break;
+
+			case LD2420_OP_ENTER_FACTORY_TEST:
+				// 14-byte ACK payload (Table 8): 7 × LE uint16_t at the
+				// offsets enumerated in LD2420_FT_OFF_*. We populate the
+				// public ft_* fields directly so the user can read them
+				// after the request returns.
+				if (result_len >= 14) {
+					ft_subboard_model =
+						(uint16_t)payload[LD2420_FT_OFF_SUBBOARD_MODEL]
+						| ((uint16_t)payload[LD2420_FT_OFF_SUBBOARD_MODEL + 1] << 8);
+					ft_cascaded_chips =
+						(uint16_t)payload[LD2420_FT_OFF_CASCADED_QTY]
+						| ((uint16_t)payload[LD2420_FT_OFF_CASCADED_QTY + 1] << 8);
+					ft_rx_channels =
+						(uint16_t)payload[LD2420_FT_OFF_RX_CHANNELS]
+						| ((uint16_t)payload[LD2420_FT_OFF_RX_CHANNELS + 1] << 8);
+					ft_data_type =
+						(uint16_t)payload[LD2420_FT_OFF_DATA_TYPE]
+						| ((uint16_t)payload[LD2420_FT_OFF_DATA_TYPE + 1] << 8);
+					ft_1dfft_size =
+						(uint16_t)payload[LD2420_FT_OFF_1DFFT_SIZE]
+						| ((uint16_t)payload[LD2420_FT_OFF_1DFFT_SIZE + 1] << 8);
+					ft_chirps_per_frame =
+						(uint16_t)payload[LD2420_FT_OFF_CHIRPS_PER_FRAME]
+						| ((uint16_t)payload[LD2420_FT_OFF_CHIRPS_PER_FRAME + 1] << 8);
+					ft_downsampling =
+						(uint16_t)payload[LD2420_FT_OFF_DOWNSAMPLING]
+						| ((uint16_t)payload[LD2420_FT_OFF_DOWNSAMPLING + 1] << 8);
+				}
+				break;
+
 			case LD2420_OP_WRITE_REGISTER:
 			case LD2420_OP_CONFIG_ABD_PARAMS:
 			case LD2420_OP_CONFIG_SYS_PARAMS:
+			case LD2420_OP_EXIT_FACTORY_TEST:
+			case LD2420_OP_SEND_FACTORY_RESULT:
 			case LD2420_OP_END_CFG:
 			default:
 				// Either no payload to decode, or this revision does not yet
@@ -957,6 +1002,84 @@ bool ld2420::requestFirmwareVersion() {
 	delay(50);
 	exitCommandMode();
 	return false;
+}
+
+// ---------------------------------------------------------------------------
+// Serial number (§1.2.6)
+
+bool ld2420::requestSerialNumber() {
+	CommandTransaction tx(*this);
+	if (!tx.ok()) return false;
+	if (!enterCommandMode()) {
+		delay(50);
+		exitCommandMode();
+		return false;
+	}
+	delay(50);
+	send_simple_command_(LD2420_OP_READ_SN);
+	const bool ok = wait_for_ack_(LD2420_OP_READ_SN, radar_uart_command_timeout_);
+	delay(50);
+	exitCommandMode();
+	return ok;
+}
+
+// ---------------------------------------------------------------------------
+// Factory test mode (§1.2.9 / §1.2.10 / §1.2.11)
+
+bool ld2420::enterFactoryTestMode() {
+	CommandTransaction tx(*this);
+	if (!tx.ok()) return false;
+	if (!enterCommandMode()) {
+		delay(50);
+		exitCommandMode();
+		return false;
+	}
+	delay(50);
+	send_simple_command_(LD2420_OP_ENTER_FACTORY_TEST);
+	const bool ok = wait_for_ack_(LD2420_OP_ENTER_FACTORY_TEST, radar_uart_command_timeout_);
+	delay(50);
+	exitCommandMode();
+	return ok;
+}
+
+bool ld2420::exitFactoryTestMode() {
+	CommandTransaction tx(*this);
+	if (!tx.ok()) return false;
+	if (!enterCommandMode()) {
+		delay(50);
+		exitCommandMode();
+		return false;
+	}
+	delay(50);
+	send_simple_command_(LD2420_OP_EXIT_FACTORY_TEST);
+	const bool ok = wait_for_ack_(LD2420_OP_EXIT_FACTORY_TEST, radar_uart_command_timeout_);
+	delay(50);
+	exitCommandMode();
+	return ok;
+}
+
+bool ld2420::sendFactoryTestResult(uint16_t address, uint16_t data) {
+	CommandTransaction tx(*this);
+	if (!tx.ok()) return false;
+	if (!enterCommandMode()) {
+		delay(50);
+		exitCommandMode();
+		return false;
+	}
+	delay(50);
+
+	begin_command_(LD2420_OP_SEND_FACTORY_RESULT);
+	send_command_preamble_();
+	ld24xx_write_le16(radar_uart_, 0x0006);                          // intra_len = 6
+	ld24xx_write_le16(radar_uart_, LD2420_OP_SEND_FACTORY_RESULT);   // cmd-word
+	ld24xx_write_le16(radar_uart_, address);
+	ld24xx_write_le16(radar_uart_, data);
+	send_command_postamble_();
+	const bool ok = wait_for_ack_(LD2420_OP_SEND_FACTORY_RESULT, radar_uart_command_timeout_);
+
+	delay(50);
+	exitCommandMode();
+	return ok;
 }
 
 // ---------------------------------------------------------------------------

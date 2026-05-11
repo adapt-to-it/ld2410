@@ -69,6 +69,18 @@ gateEnergy	KEYWORD2
 dataFrameReceived	KEYWORD2
 snapshotTargetState	KEYWORD2
 LD2420TargetState	KEYWORD1
+enterFactoryTestMode	KEYWORD2
+exitFactoryTestMode	KEYWORD2
+sendFactoryTestResult	KEYWORD2
+
+module_identification	LITERAL1
+ft_subboard_model	LITERAL1
+ft_cascaded_chips	LITERAL1
+ft_rx_channels	LITERAL1
+ft_data_type	LITERAL1
+ft_1dfft_size	LITERAL1
+ft_chirps_per_frame	LITERAL1
+ft_downsampling	LITERAL1
 
 firmware_major_version	LITERAL1
 firmware_patch_version	LITERAL1
