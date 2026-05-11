@@ -115,6 +115,43 @@ SEN0395, …) that use entirely different protocols and are **not**
 compatible with this library — even if they look the same on the
 bench.
 
+## Sibling sensors (separate class, same library)
+
+The library also ships a sibling driver for the **HLK-LD2420**, a
+different HLK product that shares only the wire-level command envelope
+with the LD2410 family. It is exposed as a separate class — `ld2420`
+— in its own header:
+
+```cpp
+#include <ld2420.h>       // not a variant of ld2410.h; independent class
+ld2420 radar;
+```
+
+Why a separate class instead of a fourth `LD2410_VARIANT_*` flag:
+
+- The LD2420 reports **raw 2DFFT energies**, not classified presence /
+  distance — the API surface (`presenceDetected()`, `movingTarget*()`)
+  simply does not apply.
+- The command vocabulary is register-level and ABD-parameter based, not
+  the "set max gate" / "engineering mode" high-level commands of LD2410.
+- The data-frame envelope is **byte-reversed** (`F1 F2 F3 F4 / F5 F6 F7
+  F8`) so a host listening to both chips can disambiguate on the first
+  four header bytes.
+
+What the two classes do share:
+- The command-frame envelope (`FD FC FB FA / 04 03 02 01`) and LE write
+  helpers, factored into [`src/ld24xx_common.h`](../src/ld24xx_common.h).
+- The ESP32 `autoReadTask` + command-mutex pattern.
+
+For users that only use one chip, the linker drops the unused class —
+zero flash / RAM impact (verified on ESP32 / ESP8266 / RP2040 with
+`-ffunction-sections -fdata-sections -Wl,--gc-sections`, the default on
+all three cores).
+
+See [`10-api-ld2420.md`](10-api-ld2420.md) for the public API and
+[`ld2420-method-coverage.md`](ld2420-method-coverage.md) for the
+opcode-by-opcode coverage matrix.
+
 ## Going deeper
 
 - Pick the right runtime model for your platform: [`03-runtime-models.md`](03-runtime-models.md)

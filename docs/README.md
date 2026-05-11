@@ -24,6 +24,7 @@ and cross-links to its peers; you don't need to read them in order.
 | [`06-api-ld2410c.md`](06-api-ld2410c.md) | C-only extensions: baud rate, Bluetooth, MAC, distance resolution | LD2410C |
 | [`07-api-ld2410s.md`](07-api-ld2410s.md) | S-only extensions: generic params, thresholds, minimal frame | LD2410S |
 | [`08-advanced.md`](08-advanced.md) | Atomic snapshots, raw frame access, debug streams, build flags | all |
+| [`10-api-ld2420.md`](10-api-ld2420.md) | Sibling sensor: `class ld2420` — register-level / ABD-parameter command vocabulary, raw FFT energies | LD2420 |
 
 ## Operations
 
@@ -39,10 +40,12 @@ except in lockstep with code changes:
 | File | Purpose |
 |---|---|
 | [`method-coverage.md`](method-coverage.md) | Matrix of every public method × variant × opcode (source of truth for `LD2410_HAS_*` gates). |
-| [`ld2410-variants-comparison.md`](ld2410-variants-comparison.md) | Byte-level side-by-side of the three protocols. |
+| [`ld2410-variants-comparison.md`](ld2410-variants-comparison.md) | Byte-level side-by-side of the three LD2410 protocols. |
+| [`ld2420-method-coverage.md`](ld2420-method-coverage.md) | LD2420 method-coverage matrix and roadmap (source of truth for `LD2420_HAS_*` gates). |
 | [`HLK-LD2410_protocol.md`](HLK-LD2410_protocol.md) | Original HLK protocol spec for the LD2410 base. |
 | [`HLK-LD2410C_protocol.md`](HLK-LD2410C_protocol.md) | Original HLK protocol spec for the LD2410C. |
 | [`HLK-LD2410S_protocol.md`](HLK-LD2410S_protocol.md) | Original HLK protocol spec for the LD2410S. |
+| [`HLK-LD2420_protocol.md`](HLK-LD2420_protocol.md) | Original HLK protocol spec for the LD2420 sibling sensor. |
 
 ## Examples
 
@@ -60,6 +63,7 @@ example sketch that exercises the relevant functions.
 | [`bluetoothControl`](../examples/bluetoothControl/bluetoothControl.ino) | LD2410C-only: Bluetooth on/off, MAC readback, password. |
 | [`distanceResolution`](../examples/distanceResolution/distanceResolution.ino) | LD2410C-only: 0.75 m ↔ 0.20 m gate quantisation. |
 | [`snapshotAtomic`](../examples/snapshotAtomic/snapshotAtomic.ino) | ESP32 dual-core race-safe getter pattern. |
+| [`ld2420_basicSensor`](../examples/ld2420_basicSensor/ld2420_basicSensor.ino) | Sibling sensor: `class ld2420` smoke test (firmware version + command-mode probe). |
 
 ## Other resources
 

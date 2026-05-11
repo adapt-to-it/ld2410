@@ -1,4 +1,5 @@
 ld2410	KEYWORD1
+ld2420	KEYWORD1
 
 begin	KEYWORD2
 debug	KEYWORD2
@@ -48,8 +49,15 @@ snapshotEngineeringStationaryEnergies	KEYWORD2
 autoReadTask	KEYWORD2
 stopAutoReadTask	KEYWORD2
 isAutoReadTaskRunning	KEYWORD2
+enterCommandMode	KEYWORD2
+exitCommandMode	KEYWORD2
 
 firmware_major_version	LITERAL1
+firmware_patch_version	LITERAL1
+firmware_version_ascii	LITERAL1
+firmware_version_length	LITERAL1
+protocol_version	LITERAL1
+tx_rx_buffer_size	LITERAL1
 firmware_minor_version	LITERAL1
 firmware_bugfix_version	LITERAL1
 mac_address	LITERAL1
